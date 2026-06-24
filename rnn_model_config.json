@@ -1,1 +1,11 @@
-{"input_size": 5000, "hidden_size": 128, "num_layers": 1}
+{
+  "input_size": 5000,
+  "hidden_size": 128,
+  "num_layers": 1,
+  "architecture": "RNN",
+  "output_classes": 2,
+  "class_labels": ["negative", "positive"],
+  "framework": "PyTorch",
+  "vectorizer": "TF-IDF",
+  "vocab_size": 5000
+}
