@@ -1,5 +1,6 @@
-streamlit
-torch
-scikit-learn
-joblib
-nltk
+streamlit>=1.35.0
+torch>=2.3.0
+scikit-learn>=1.5.0
+joblib>=1.4.0
+nltk>=3.8.1
+numpy>=1.26.0
