@@ -1,0 +1,44 @@
+[project]
+name = "imdb-sentiment-studio"
+version = "1.1.0"
+description = "AI-powered IMDB movie review sentiment analyzer using PyTorch RNN and Streamlit"
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.11"
+keywords = ["sentiment-analysis", "nlp", "pytorch", "rnn", "streamlit", "imdb"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3.11",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+]
+dependencies = [
+    "streamlit>=1.35.0",
+    "torch>=2.3.0",
+    "scikit-learn>=1.5.0",
+    "joblib>=1.4.0",
+    "nltk>=3.8.1",
+    "numpy>=1.26.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "flake8>=7.0.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/SQUADRON-LEADER/IMDB-Sentiment-Studio"
+Repository = "https://github.com/SQUADRON-LEADER/IMDB-Sentiment-Studio"
+"Bug Tracker" = "https://github.com/SQUADRON-LEADER/IMDB-Sentiment-Studio/issues"
+Changelog = "https://github.com/SQUADRON-LEADER/IMDB-Sentiment-Studio/blob/main/CHANGELOG.md"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-v --tb=short"
+
+[tool.flake8]
+max-line-length = 100
+exclude = [".git", "__pycache__", "venv", ".venv"]
