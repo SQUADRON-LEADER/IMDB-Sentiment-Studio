@@ -1,87 +1,22 @@
+"""
+streamlit_app.py – IMDB Sentiment Studio
+=========================================
+Main Streamlit entry-point. Inference logic lives in utils.py.
+"""
+
 import streamlit as st
-import torch
-import torch.nn as nn
-import joblib
-import numpy as np
-from pathlib import Path
+
+from utils import load_artifacts, predict_sentiment, text_stats
+
+# ─── Page Config ──────────────────────────────────────────────────────────────
 
 st.set_page_config(
     page_title="IMDB Sentiment Studio",
     page_icon="🎬",
-    layout="centered"
+    layout="centered",
 )
 
-# ─── Model Definition ──────────────────────────────────────────────────────────
-
-BASE_DIR = Path(__file__).parent
-
-class RNNModel(nn.Module):
-    """
-    Architecture matches the saved checkpoint exactly:
-      - RNN layer named 'RNNModel' (as it was during training)
-      - fc outputs 2 classes (negative=0, positive=1)
-    """
-    def __init__(self, input_size=5000, hidden_size=128, num_layers=1):
-        super(RNNModel, self).__init__()
-        self.hidden_size = hidden_size
-        self.num_layers = num_layers
-        # NOTE: must be named 'RNNModel' to match saved state_dict keys
-        self.RNNModel = nn.RNN(input_size, hidden_size, num_layers, batch_first=True)
-        self.fc = nn.Linear(hidden_size, 2)  # 2-class output
-
-    def forward(self, x):
-        h0 = torch.zeros(self.num_layers, x.size(0), self.hidden_size)
-        out, _ = self.RNNModel(x, h0)
-        out = self.fc(out[:, -1, :])
-        return out  # raw logits; softmax applied in predict_sentiment
-
-
-@st.cache_resource
-def load_artifacts():
-    """Load and cache model, vectorizer, and label encoder from disk."""
-    vectorizer = joblib.load(BASE_DIR / "tfidf_vectorizer.pkl")
-    label_encoder = joblib.load(BASE_DIR / "label_encoder.pkl")
-
-    model = RNNModel(input_size=5000, hidden_size=128, num_layers=1)
-    state_dict = torch.load(
-        BASE_DIR / "rnn_model_state.pt",
-        map_location=torch.device("cpu"),
-        weights_only=True
-    )
-    model.load_state_dict(state_dict)
-    model.eval()
-    return model, vectorizer, label_encoder
-
-
-def predict_sentiment(review: str):
-    """
-    Transform a raw review string and run inference.
-    Returns: (label, confidence, score_map)
-    """
-    model, vectorizer, label_encoder = load_artifacts()
-
-    # TF-IDF → dense numpy array, shape (1, 5000)
-    tfidf_vec = vectorizer.transform([review])
-    dense = tfidf_vec.toarray().astype(np.float32)
-    # Model expects (batch, seq_len, input_size) → unsqueeze seq_len dim
-    tensor_input = torch.tensor(dense).unsqueeze(1)          # shape (1, 1, 5000)
-
-    with torch.no_grad():
-        logits = model(tensor_input)                          # shape (1, 2)
-        probs = torch.softmax(logits, dim=1).squeeze()       # shape (2,)
-
-    classes = list(label_encoder.classes_)                   # ['negative', 'positive'] or similar
-    prob_values = probs.numpy()                              # [prob_class0, prob_class1]
-
-    predicted_idx = int(np.argmax(prob_values))
-    label = classes[predicted_idx]
-    confidence = float(prob_values[predicted_idx])
-
-    score_map = {cls: float(prob_values[i]) for i, cls in enumerate(classes)}
-    return label, confidence, score_map
-
-
-# ─── CSS ───────────────────────────────────────────────────────────────────────
+# ─── CSS ──────────────────────────────────────────────────────────────────────
 
 st.markdown("""
 <style>
@@ -156,61 +91,85 @@ h1 { text-align: center; color: white; }
     to   { opacity: 1; transform: translateY(0); }
 }
 
+/* Stats badge */
+.stats-badge {
+    display: inline-block;
+    background: #1e293b;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    padding: 4px 12px;
+    color: #94a3b8;
+    font-size: 13px;
+    margin-right: 8px;
+}
+
 /* Progress bar label */
 p { color: #e2e8f0 !important; }
 </style>
 """, unsafe_allow_html=True)
 
-# ─── Header ────────────────────────────────────────────────────────────────────
+# ─── Header ───────────────────────────────────────────────────────────────────
 
 st.markdown("""
 <h1>🎬 IMDB Sentiment Studio</h1>
 <div class='subtitle'>AI Powered Movie Review Sentiment Analyzer</div>
 """, unsafe_allow_html=True)
 
-# ─── Sample Reviews ────────────────────────────────────────────────────────────
+# ─── Sample Reviews ───────────────────────────────────────────────────────────
 
-sample_positive = "A beautifully acted film with heartfelt moments and brilliant direction."
-sample_negative = "Despite a strong cast, it was boring, messy, and way too long."
+SAMPLE_POSITIVE = "A beautifully acted film with heartfelt moments and brilliant direction."
+SAMPLE_NEGATIVE = "Despite a strong cast, it was boring, messy, and way too long."
 
-# ─── Session State ─────────────────────────────────────────────────────────────
+# ─── Session State ────────────────────────────────────────────────────────────
 
 if "review_text" not in st.session_state:
     st.session_state.review_text = ""
-
 if "auto_analyze" not in st.session_state:
     st.session_state.auto_analyze = False
+if "history" not in st.session_state:
+    st.session_state.history = []
 
 
-def select_sample(text):
+def select_sample(text: str) -> None:
     st.session_state.review_text = text
     st.session_state.auto_analyze = True
 
 
-# ─── Text Area ─────────────────────────────────────────────────────────────────
+# ─── Text Area ────────────────────────────────────────────────────────────────
 
 review = st.text_area(
     "✍️ Enter Movie Review",
     placeholder="Type a movie review here...",
     height=180,
-    key="review_text"
+    key="review_text",
 )
 
-# ─── Sample Buttons ────────────────────────────────────────────────────────────
+# ─── Text Stats ───────────────────────────────────────────────────────────────
+
+stats = text_stats(review)
+st.markdown(
+    f"<span class='stats-badge'>📝 {stats['word_count']} words</span>"
+    f"<span class='stats-badge'>🔤 {stats['char_count']} characters</span>",
+    unsafe_allow_html=True,
+)
+
+st.write("")
+
+# ─── Sample Buttons ───────────────────────────────────────────────────────────
 
 c1, c2 = st.columns(2)
 with c1:
     st.button("✨ Positive Sample", use_container_width=True,
-              on_click=select_sample, args=(sample_positive,))
+              on_click=select_sample, args=(SAMPLE_POSITIVE,))
 with c2:
     st.button("⚡ Negative Sample", use_container_width=True,
-              on_click=select_sample, args=(sample_negative,))
+              on_click=select_sample, args=(SAMPLE_NEGATIVE,))
 
-# ─── Analyze Button ────────────────────────────────────────────────────────────
+# ─── Analyze Button ───────────────────────────────────────────────────────────
 
 analyze = st.button("🚀 Analyze Sentiment", type="primary", use_container_width=True)
 
-# ─── Prediction ────────────────────────────────────────────────────────────────
+# ─── Prediction ───────────────────────────────────────────────────────────────
 
 if analyze or st.session_state.auto_analyze:
     st.session_state.auto_analyze = False
@@ -218,18 +177,21 @@ if analyze or st.session_state.auto_analyze:
     if not review.strip():
         st.warning("⚠️ Please enter a movie review first.")
     else:
-        with st.spinner("Analyzing sentiment..."):
+        with st.spinner("Analyzing sentiment…"):
             try:
                 label, confidence, score_map = predict_sentiment(review)
 
                 if label.lower() == "positive":
-                    emoji = "😊"
-                    color = "#10b981"
-                    glow = "rgba(16,185,129,0.3)"
+                    emoji, color, glow = "😊", "#10b981", "rgba(16,185,129,0.3)"
                 else:
-                    emoji = "😔"
-                    color = "#ef4444"
-                    glow = "rgba(239,68,68,0.3)"
+                    emoji, color, glow = "😔", "#ef4444", "rgba(239,68,68,0.3)"
+
+                # Store in history
+                st.session_state.history.append({
+                    "review": review[:80] + ("…" if len(review) > 80 else ""),
+                    "label": label,
+                    "confidence": confidence,
+                })
 
                 st.markdown(f"""
 <div class='result-card' style='border-color:{color};box-shadow:0 0 30px {glow};'>
@@ -246,10 +208,48 @@ if analyze or st.session_state.auto_analyze:
                 st.write("")
                 st.subheader("📊 Class Probabilities")
                 for cls, prob in score_map.items():
-                    bar_color = "#10b981" if cls.lower() == "positive" else "#ef4444"
                     st.markdown(f"**{cls.title()}** — `{prob*100:.2f}%`")
                     st.progress(float(prob))
 
-            except Exception as e:
-                st.error(f"❌ Error during prediction: {e}")
-                st.info("Make sure `rnn_model_state.pt`, `tfidf_vectorizer.pkl`, and `label_encoder.pkl` exist in the same folder as `streamlit_app.py`.")
+            except FileNotFoundError as exc:
+                st.error(f"❌ Missing artefact: {exc.filename}")
+                st.info(
+                    "Make sure `rnn_model_state.pt`, `tfidf_vectorizer.pkl`, and "
+                    "`label_encoder.pkl` exist in the same folder as `streamlit_app.py`."
+                )
+            except Exception as exc:
+                st.error(f"❌ Unexpected error: {exc}")
+
+# ─── Prediction History ───────────────────────────────────────────────────────
+
+if st.session_state.history:
+    st.write("")
+    with st.expander("🕑 Prediction History", expanded=False):
+        for i, entry in enumerate(reversed(st.session_state.history), 1):
+            icon = "😊" if entry["label"].lower() == "positive" else "😔"
+            st.markdown(
+                f"**{i}.** {icon} `{entry['label'].upper()}` "
+                f"({entry['confidence']*100:.1f}%) — *{entry['review']}*"
+            )
+
+# ─── Sidebar ──────────────────────────────────────────────────────────────────
+
+with st.sidebar:
+    st.markdown("## 🎬 About")
+    st.markdown(
+        "**IMDB Sentiment Studio** uses a single-layer PyTorch RNN trained on "
+        "50 000 IMDB reviews to classify text as **Positive** or **Negative**."
+    )
+    st.markdown("---")
+    st.markdown("### 🧠 Model Info")
+    st.markdown("- **Architecture**: RNN (1 layer, 128 hidden units)")
+    st.markdown("- **Features**: TF-IDF (5 000 vocab)")
+    st.markdown("- **Classes**: Negative / Positive")
+    st.markdown("---")
+    st.markdown(
+        "[![GitHub](https://img.shields.io/badge/GitHub-Repo-181717?logo=github)]"
+        "(https://github.com/SQUADRON-LEADER/IMDB-Sentiment-Studio)"
+    )
+
+    # Warm up model silently
+    load_artifacts()
